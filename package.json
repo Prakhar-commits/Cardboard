@@ -1,0 +1,10 @@
+{
+  "name": "style-decomposer",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev:server": "pnpm --filter server dev",
+    "dev:web": "pnpm --filter web dev",
+    "build": "pnpm --filter server build && pnpm --filter web build"
+  }
+}
