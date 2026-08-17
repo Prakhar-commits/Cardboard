@@ -70,11 +70,49 @@ function isNeutralGrade(grade: StyleSpec["color"]["grade"]): boolean {
   return grade.temperature === "neutral" && grade.contrast === "medium" && grade.saturation === "natural";
 }
 
+/**
+ * Longest edge of the render, in pixels. Source footage is routinely 4K —
+ * 2160x4096 is ~8.8M pixels per frame, and encoding that inside a small
+ * container gets the process OOM-killed partway through (ffmpeg emits no
+ * error; it simply dies after libx264 initialises). Downscaling first cuts
+ * memory roughly four-fold and speeds the render up correspondingly. A
+ * before/after demo does not need 4K, and every size is expressed relative
+ * to `h`, so type scales with the frame.
+ */
+const MAX_RENDER_EDGE = Number(process.env.MAX_RENDER_EDGE ?? 1920);
+
+/** Caps the long edge whichever way the video is oriented, keeping both
+ *  dimensions even for yuv420p. */
+function downscaleFilter(): string {
+  const max = MAX_RENDER_EDGE;
+  // `-2` on the free axis preserves aspect and keeps the dimension even for
+  // yuv420p, so no additional aspect option is needed.
+  return `scale=w='if(gt(iw,ih),min(${max},iw),-2)':h='if(gt(iw,ih),-2,min(${max},ih))'`;
+}
+
 function runFfmpeg(inputPath: string, outputPath: string, filters: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const args = ["-y", "-i", inputPath];
     if (filters.length > 0) {
-      args.push("-vf", filters.join(","), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "copy");
+      // Downscale before the grade and titles so every later filter — and the
+      // encoder — works on the smaller frame.
+      const chain = [downscaleFilter(), ...filters].join(",");
+      args.push(
+        "-vf",
+        chain,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        // libx264 allocates frame buffers per thread; uncapped on a many-core
+        // host this is a large share of the memory that gets us killed.
+        "-threads",
+        "2",
+        "-c:a",
+        "copy"
+      );
     } else {
       args.push("-c", "copy");
     }
@@ -84,9 +122,26 @@ function runFfmpeg(inputPath: string, outputPath: string, filters: string[]): Pr
     let stderr = "";
     proc.stderr.on("data", (c) => (stderr += c.toString()));
     proc.on("error", reject);
-    proc.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`ffmpeg render failed: ${stderr.slice(-800)}`));
+    proc.on("close", (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      // A kill signal (or 137) means the OS stopped ffmpeg — almost always the
+      // OOM killer on a small container. ffmpeg writes no error of its own in
+      // that case, so the raw stderr tail is just its startup banner and reads
+      // as a filter bug. Say what actually happened.
+      if (signal || code === 137) {
+        reject(
+          new Error(
+            `ffmpeg was killed by the system (${signal ?? "exit 137"}) — this is almost always the ` +
+              `container running out of memory while encoding. Give the service more RAM, or lower ` +
+              `MAX_RENDER_EDGE (currently ${MAX_RENDER_EDGE}).`
+          )
+        );
+        return;
+      }
+      reject(new Error(`ffmpeg render failed (exit ${code}): ${stderr.slice(-800)}`));
     });
   });
 }

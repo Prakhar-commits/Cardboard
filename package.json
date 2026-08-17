@@ -7,9 +7,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev:server": "pnpm --filter server dev",
-    "dev:web": "pnpm --filter web dev",
-    "build": "pnpm --filter server build && pnpm --filter web build",
-    "start": "node server/dist/index.js"
+    "dev:server": "node init && pnpm --filter server dev",
+    "dev:web": "node init && pnpm --filter web dev",
+    "build": "node init && pnpm --filter server build && pnpm --filter web build",
+    "start": "node init && node server/dist/index.js"
   }
 }
