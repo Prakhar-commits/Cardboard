@@ -1,6 +1,5 @@
 node_modules/
 dist/
-.env
 *.log
 *.tsbuildinfo
 
@@ -13,3 +12,4 @@ assets/fonts-cache/
 
 # Test videos: large binaries, not source.
 samples/
+config.bat
