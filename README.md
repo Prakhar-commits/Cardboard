@@ -49,13 +49,13 @@ Open **http://localhost:5173** — not 8787. Vite proxies `/api` and `/media` to
 | `ANTHROPIC_API_KEY` | — | Required. Vision analysis. |
 | `PORT` | `8787` | Server port. |
 | `NODE_ENV` | — | `production` makes `DEMO_PASSWORD` mandatory. |
-| `DEMO_PASSWORD` | — | Enables the HTTP Basic gate. Unset locally = no gate. **Required in production.** |
-| `DEMO_USER` | `demo` | Username for the gate. |
+| `DEMO_PASSWORD` | — | Enables the login gate. Unset locally = no gate. **Required in production.** |
+| `SESSION_SECRET` | falls back to `DEMO_PASSWORD` | HMAC key for session cookies. Set it if you want to rotate the password without invalidating sessions. |
 | `MAX_RUNS_PER_DAY` | `50` | Rolling 24h cap on billable runs. |
 
 ### The demo gate
 
-Auth is HTTP Basic and deliberately stateless — credentials are compared against the env var on every request, so there is no session store and nothing breaks on restart. It exists to keep a paid API key from being a free public endpoint; it is not a security boundary, and it only means anything over TLS.
+Auth is a designed login screen backed by an HMAC-signed session cookie, and it is deliberately stateless — the cookie carries its own expiry and signature, so the server verifies it by recomputing the HMAC rather than looking anything up. There is no session store, and a restart does not sign anyone out. Cookies are also what let `<video>` and `<img>` requests against `/media` authenticate without proxying every asset through `fetch()`.
 
 In production the server **refuses to boot** without `DEMO_PASSWORD`, because deploying without it is exactly the mistake that would expose the key.
 

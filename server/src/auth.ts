@@ -1,47 +1,98 @@
-import { timingSafeEqual } from "node:crypto";
-import type { RequestHandler } from "express";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import type { RequestHandler, Response } from "express";
 
 /**
- * HTTP Basic auth over the whole app. Chosen over a login screen because the
- * browser's native prompt costs no frontend work and, once accepted, applies
- * automatically to the <video> and download requests that pull from /media —
- * which a token-in-a-header scheme would not.
+ * A stateless session cookie.
  *
- * This is a demo gate, not a security boundary: it protects a paid API key
- * from casual traffic. It is only meaningful over TLS, which the platform
- * terminates for us.
+ * The gate exists to keep a paid API key from being a free public endpoint.
+ * It was HTTP Basic first, which cost no frontend work but hands the user the
+ * browser's native sign-in dialog — unstyleable, and the first thing anyone
+ * sees of the product.
+ *
+ * This replaces it without introducing a session store: the cookie carries
+ * its own expiry and an HMAC over that expiry, so the server verifies it by
+ * recomputing the signature rather than by looking anything up. There is
+ * still nothing to persist, and a restart does not sign anyone out — the
+ * secret comes from the environment, so it is stable across deploys.
+ *
+ * Cookies also beat a token-in-a-header here: the browser attaches them
+ * automatically to <video> and <img> requests against /media, which a header
+ * scheme cannot reach without proxying every asset through fetch().
  */
 
-// ASCII only: Node throws ERR_INVALID_CHAR on non-ASCII header values, which
-// turns every unauthenticated request into a 500 instead of a 401.
-const REALM = "Style Decomposer demo";
+export const SESSION_COOKIE = "sd_session";
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h — long enough for a demo session
+
+function sign(payload: string, secret: string): string {
+  return createHmac("sha256", secret).update(payload).digest("base64url");
+}
 
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
-  // timingSafeEqual throws on length mismatch, so compare lengths first and
-  // still run the comparison to keep the timing profile flat.
   if (bufA.length !== bufB.length) {
+    // Keep the timing profile flat rather than returning early on length.
     timingSafeEqual(bufA, bufA);
     return false;
   }
   return timingSafeEqual(bufA, bufB);
 }
 
-export interface AuthConfig {
-  user: string;
-  password: string;
+export function createSessionToken(secret: string, now = Date.now()): string {
+  const expiresAt = String(now + SESSION_TTL_MS);
+  return `${expiresAt}.${sign(expiresAt, secret)}`;
 }
 
-/**
- * Reads the gate's credentials from the environment. In production a missing
- * password is a hard boot failure rather than an open door — deploying
- * without setting the env var is exactly the mistake that would expose the
- * API key, so it must not fail quietly.
- */
+export function verifySessionToken(token: string | undefined, secret: string, now = Date.now()): boolean {
+  if (!token) return false;
+  const separator = token.lastIndexOf(".");
+  if (separator === -1) return false;
+
+  const expiresAt = token.slice(0, separator);
+  const signature = token.slice(separator + 1);
+  if (!safeEqual(signature, sign(expiresAt, secret))) return false;
+
+  const expiry = Number(expiresAt);
+  return Number.isFinite(expiry) && expiry > now;
+}
+
+/** Minimal cookie header parse — avoids adding cookie-parser for one value. */
+export function readCookie(header: string | undefined, name: string): string | undefined {
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator === -1) continue;
+    if (part.slice(0, separator).trim() === name) {
+      return decodeURIComponent(part.slice(separator + 1).trim());
+    }
+  }
+  return undefined;
+}
+
+export function setSessionCookie(res: Response, token: string, isProduction: boolean): void {
+  res.cookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isProduction, // Railway terminates TLS; locally we're on http
+    path: "/",
+    maxAge: SESSION_TTL_MS,
+  });
+}
+
+export function clearSessionCookie(res: Response): void {
+  res.clearCookie(SESSION_COOKIE, { path: "/" });
+}
+
+export interface AuthConfig {
+  password: string;
+  /** Signing key for session cookies. Separate from the password so the
+   *  password can be rotated without a code change, but defaulted from it so
+   *  a demo deploy needs exactly one variable set. */
+  secret: string;
+}
+
 export function readAuthConfig(isProduction: boolean): AuthConfig | null {
   const password = process.env.DEMO_PASSWORD?.trim();
-  const user = process.env.DEMO_USER?.trim() || "demo";
 
   if (!password) {
     if (isProduction) {
@@ -53,31 +104,25 @@ export function readAuthConfig(isProduction: boolean): AuthConfig | null {
     return null;
   }
 
-  return { user, password };
+  return { password, secret: process.env.SESSION_SECRET?.trim() || password };
 }
 
-export function basicAuth(config: AuthConfig): RequestHandler {
+export function checkPassword(candidate: unknown, config: AuthConfig): boolean {
+  return typeof candidate === "string" && safeEqual(candidate, config.password);
+}
+
+/**
+ * Gates the API and media routes. The SPA shell itself is deliberately left
+ * open — the login screen has to be servable to be usable, and the bundle
+ * contains no secrets.
+ */
+export function requireSession(config: AuthConfig): RequestHandler {
   return (req, res, next) => {
-    const header = req.headers.authorization;
-
-    if (header?.startsWith("Basic ")) {
-      const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
-      const separator = decoded.indexOf(":");
-      if (separator !== -1) {
-        const user = decoded.slice(0, separator);
-        const password = decoded.slice(separator + 1);
-        // Both comparisons always run — short-circuiting on the username
-        // would leak which half was wrong.
-        const userOk = safeEqual(user, config.user);
-        const passwordOk = safeEqual(password, config.password);
-        if (userOk && passwordOk) {
-          next();
-          return;
-        }
-      }
+    const token = readCookie(req.headers.cookie, SESSION_COOKIE);
+    if (verifySessionToken(token, config.secret)) {
+      next();
+      return;
     }
-
-    res.setHeader("WWW-Authenticate", `Basic realm="${REALM}", charset="UTF-8"`);
-    res.status(401).send("Authentication required.");
+    res.status(401).json({ error: "Not authenticated." });
   };
 }

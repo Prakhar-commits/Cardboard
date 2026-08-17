@@ -11,7 +11,17 @@ import { generateCubeLut } from "./pipeline/lut.js";
 import { createApplyJob, getApplyJob, updateApplyJob } from "./applyJobs.js";
 import { runApplyPipeline } from "./pipeline/apply.js";
 import { StyleSpecSchema } from "./schema/styleSpec.js";
-import { basicAuth, readAuthConfig } from "./auth.js";
+import {
+  checkPassword,
+  clearSessionCookie,
+  createSessionToken,
+  readAuthConfig,
+  readCookie,
+  requireSession,
+  setSessionCookie,
+  verifySessionToken,
+  SESSION_COOKIE,
+} from "./auth.js";
 import { enqueue, queueDepth } from "./queue.js";
 import { startCleanupLoop } from "./cleanup.js";
 import { checkCap, recordRun } from "./usage.js";
@@ -47,14 +57,48 @@ app.get("/api/health", (_req, res) => {
 });
 
 const authConfig = readAuthConfig(IS_PRODUCTION);
+
+app.use(cors());
+app.use(express.json());
+
+// Session endpoints sit outside the gate — the login screen has to be able to
+// ask whether it is needed, and to submit credentials.
+app.get("/api/session", (req, res) => {
+  if (!authConfig) {
+    res.json({ required: false, authenticated: true });
+    return;
+  }
+  const token = readCookie(req.headers.cookie, SESSION_COOKIE);
+  res.json({ required: true, authenticated: verifySessionToken(token, authConfig.secret) });
+});
+
+app.post("/api/login", (req, res) => {
+  if (!authConfig) {
+    res.json({ ok: true });
+    return;
+  }
+  if (!checkPassword(req.body?.password, authConfig)) {
+    res.status(401).json({ error: "Incorrect password." });
+    return;
+  }
+  setSessionCookie(res, createSessionToken(authConfig.secret), IS_PRODUCTION);
+  res.json({ ok: true });
+});
+
+app.post("/api/logout", (_req, res) => {
+  clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
 if (authConfig) {
-  app.use(basicAuth(authConfig));
-  console.log(`demo gate enabled for user "${authConfig.user}"`);
+  // Everything that costs money or serves user media sits behind the session.
+  app.use("/api", requireSession(authConfig));
+  app.use("/media", requireSession(authConfig));
+  console.log("demo gate enabled (session cookie)");
 } else {
   console.log("demo gate disabled (no DEMO_PASSWORD set — local development only)");
 }
 
-app.use(cors());
 app.use(MEDIA_BASE_URL, express.static(FRAMES_DIR));
 app.use(OUTPUTS_MEDIA_URL, express.static(OUTPUTS_DIR));
 
