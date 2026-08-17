@@ -26,6 +26,13 @@ export interface ApplyJob {
   titleSkipReason?: string;
   resolvedFontFamily?: string;
 
+  /** What the resolved animation preset actually rendered as. Reported so the
+   *  UI can distinguish an exact execution from an approximation. */
+  animationPreset?: string;
+  animationRendered?: string;
+  animationApproximated?: boolean;
+  animationNote?: string;
+
   outputUrl?: string;
   outputPath?: string;
 

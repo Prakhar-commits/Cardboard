@@ -164,6 +164,10 @@ export interface ApplyJob {
   titleApplied?: boolean;
   titleSkipReason?: string;
   resolvedFontFamily?: string;
+  animationPreset?: string;
+  animationRendered?: string;
+  animationApproximated?: boolean;
+  animationNote?: string;
   outputUrl?: string;
   verifyStatus?: VerifyStatus;
   verifyError?: string;

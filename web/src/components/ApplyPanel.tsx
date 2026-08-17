@@ -260,6 +260,19 @@ export function ApplyPanel({ spec }: { spec: StyleSpec }) {
                     <span className="text-text-faint">skipped — {applyJob.titleSkipReason}</span>
                   )}
                 </span>
+                {applyJob.titleApplied && applyJob.animationPreset && (
+                  <span>
+                    animation:{" "}
+                    <span className="text-text">{applyJob.animationPreset}</span>{" "}
+                    <span className="text-text-faint">
+                      rendered as {applyJob.animationRendered}
+                      {applyJob.animationApproximated ? " (approximated)" : ""}
+                    </span>
+                  </span>
+                )}
+                {applyJob.animationNote && (
+                  <span className="max-w-2xl text-text-faint">{applyJob.animationNote}</span>
+                )}
               </div>
             )}
 

@@ -6,6 +6,8 @@ import type { StyleSpec } from "../schema/styleSpec.js";
 import { generateCubeLut } from "./lut.js";
 import { resolveFontFile, FontFileError } from "./fontFiles.js";
 import { buildFidelityReport } from "./verify.js";
+import { buildTextAnimation } from "./textAnimation.js";
+import { probeVideo } from "./ingest.js";
 
 export interface ApplyPaths {
   workDir: string;
@@ -22,12 +24,6 @@ export interface ApplyPaths {
 // colon still has to be escaped explicitly even inside single quotes.
 function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "/").replace(/:/g, "\\:");
-}
-
-function escapeDrawtextText(text: string): string {
-  return text
-    .replace(/\\/g, "\\\\")
-    .replace(/'/g, "’"); // sidestep the fiddly single-quote escaping inside a quoted filter value
 }
 
 function applyCase(text: string, mode: StyleSpec["typography"]["styles"][number]["case"]): string {
@@ -139,12 +135,31 @@ export async function runApplyPipeline(job: ApplyJob, paths: ApplyPaths): Promis
         const text = applyCase(job.titleText, style.case);
         const { x, y } = placementXY(style.placement);
         const size = fontSizeForRole(style.role);
-        filters.push(
-          `drawtext=fontfile='${escapeFilterPath(fontPath)}':text='${escapeDrawtextText(
-            text
-          )}':fontsize=${size}:fontcolor=${style.colorHex}:x=${x}:y=${y}:box=0`
-        );
-        updateApplyJob(job.id, { titleApplied: true, resolvedFontFamily: family });
+
+        // Execute the preset the ladder resolved to, rather than burning a
+        // static string and leaving the ladder's conclusion unexercised.
+        const probe = await probeVideo(job.targetVideoPath);
+        const animation = buildTextAnimation({
+          text,
+          fontFile: escapeFilterPath(fontPath),
+          fontSizeExpr: size,
+          colorHex: style.colorHex,
+          x,
+          y,
+          classification: style.resolvedAnimation?.classification,
+          intensity: style.resolvedAnimation?.intensity,
+          durationSec: probe.durationSec,
+        });
+
+        filters.push(...animation.filters);
+        updateApplyJob(job.id, {
+          titleApplied: true,
+          resolvedFontFamily: family,
+          animationPreset: style.resolvedAnimation?.preset,
+          animationRendered: animation.kind,
+          animationApproximated: animation.approximated,
+          animationNote: animation.note,
+        });
       } catch (err) {
         const reason = err instanceof FontFileError ? err.message : "font asset unavailable";
         updateApplyJob(job.id, { titleApplied: false, titleSkipReason: reason });
