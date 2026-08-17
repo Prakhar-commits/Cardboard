@@ -116,6 +116,7 @@ export interface Job {
   updatedAt: number;
   error?: string;
   originalFilename: string;
+  queuePosition?: number;
   source?: StyleSpec["source"];
   shots?: Shot[];
   pacing?: StyleSpec["pacing"];
@@ -156,6 +157,7 @@ export interface ApplyJob {
   status: ApplyJobStatus;
   error?: string;
   targetOriginalFilename: string;
+  queuePosition?: number;
   titleText?: string;
   gradeApplied?: boolean;
   gradeSkipReason?: string;

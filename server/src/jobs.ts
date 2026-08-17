@@ -37,6 +37,9 @@ export interface Job {
   originalFilename: string;
   videoPath?: string;
 
+  /** Place in the serial work queue; 0 once running. */
+  queuePosition?: number;
+
   source?: {
     durationSec: number;
     resolution: string;
@@ -110,4 +113,17 @@ export function failJob(id: string, error: string): Job {
 
 export function statusIndex(status: JobStatus): number {
   return STATUS_ORDER.indexOf(status);
+}
+
+/** Drops job records whose files the cleanup sweep has already removed. */
+export function forgetJobsOlderThan(maxAgeMs: number): number {
+  const cutoff = Date.now() - maxAgeMs;
+  let dropped = 0;
+  for (const [id, job] of jobs) {
+    if (job.updatedAt < cutoff) {
+      jobs.delete(id);
+      dropped++;
+    }
+  }
+  return dropped;
 }

@@ -53,13 +53,24 @@ function stageDetail(stage: Stage, job: Job): string {
 
 export function ProgressStepper({ job }: { job: Job }) {
   const currentIdx = STATUS_ORDER.indexOf(job.status);
+  const waiting = job.status === "queued" && (job.queuePosition ?? 0) > 0;
 
   return (
     <div className="mx-auto w-full max-w-[720px] px-6 py-16">
       <span className="font-mono text-[13px] uppercase tracking-widest text-accent">
         {job.originalFilename}
       </span>
-      <h1 className="mt-2 mb-8 text-2xl font-semibold text-text">Decomposing reference…</h1>
+      <h1 className="mt-2 text-2xl font-semibold text-text">
+        {waiting ? "Waiting for a slot…" : "Decomposing reference…"}
+      </h1>
+
+      {waiting && (
+        <p className="mt-2 mb-8 text-[13px] text-text-dim">
+          {job.queuePosition === 1 ? "Next up" : `Position ${job.queuePosition} in queue`} — one video is
+          processed at a time so each render gets the whole machine.
+        </p>
+      )}
+      {!waiting && <div className="mb-8" />}
 
       <div className="border border-hairline bg-surface divide-y divide-hairline">
         {STAGES.map((stage) => {

@@ -2,9 +2,14 @@
   "name": "style-decomposer",
   "private": true,
   "version": "1.0.0",
+  "packageManager": "pnpm@9.14.4",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev:server": "pnpm --filter server dev",
     "dev:web": "pnpm --filter web dev",
-    "build": "pnpm --filter server build && pnpm --filter web build"
+    "build": "pnpm --filter server build && pnpm --filter web build",
+    "start": "node server/dist/index.js"
   }
 }

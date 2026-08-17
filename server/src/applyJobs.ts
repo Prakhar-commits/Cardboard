@@ -13,6 +13,9 @@ export interface ApplyJob {
 
   targetVideoPath: string;
   targetOriginalFilename: string;
+
+  /** Place in the serial work queue; 0 once running. */
+  queuePosition?: number;
   spec: StyleSpec;
   titleText?: string;
 
@@ -71,4 +74,17 @@ export function setApplyStatus(id: string, status: ApplyJobStatus): ApplyJob {
 
 export function failApplyJob(id: string, error: string): ApplyJob {
   return updateApplyJob(id, { status: "failed", error });
+}
+
+/** Drops job records whose files the cleanup sweep has already removed. */
+export function forgetApplyJobsOlderThan(maxAgeMs: number): number {
+  const cutoff = Date.now() - maxAgeMs;
+  let dropped = 0;
+  for (const [id, job] of applyJobs) {
+    if (job.updatedAt < cutoff) {
+      applyJobs.delete(id);
+      dropped++;
+    }
+  }
+  return dropped;
 }

@@ -1,0 +1,23 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.gitignore
+.env
+*.log
+**/*.tsbuildinfo
+
+# Runtime working directories — recreated in the image.
+server/uploads
+server/frames
+server/outputs
+server/apply-work
+server/assets/fonts-cache
+
+# Vestigial: a nested lockfile predating the pnpm workspace. The root
+# pnpm-lock.yaml is authoritative; shipping this one into the build would
+# invite pnpm to resolve against stale metadata.
+server/pnpm-lock.yaml
+
+samples
+*.md
